@@ -36,7 +36,8 @@
       // Set worker source for pdf.js from CDN
       pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js`;
     </script>
-  </head>
+  <link rel="stylesheet" href="/index.css">
+</head>
   <body class="bg-brand-bg text-brand-text-primary">
     <div id="root"></div>
     <script>
@@ -124,7 +125,7 @@
               {isLoading ? (
                   <div className="flex flex-col items-center justify-center flex-1">
                       <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-                      <p className="text-brand-text-primary">문서 로딩 중...</p>
+                      <p className="text-brand-text-primary">문서 목록 확인 및 로딩 중...</p>
                       <p className="text-sm text-brand-text-secondary">자료를 준비하고 있습니다.</p>
                   </div>
               ) : (
@@ -250,15 +251,10 @@
           const [messages, setMessages] = useState([]);
           const [currentMessage, setCurrentMessage] = useState('');
           const [isLoading, setIsLoading] = useState(false);
-          const [isParsing, setIsParsing] = useState(true); // Set to true to start loading on mount
+          const [isParsing, setIsParsing] = useState(true);
+          const [discoveredFiles, setDiscoveredFiles] = useState([]);
           const [error, setError] = useState(null);
 
-          // IMPORTANT: Update this list with your PDF files.
-          const PDF_FILES = [
-            '24년 금연사업안내(본문).pdf',
-            '24년 금연사업안내(부록).pdf',
-            '24년 지역사회중심금연지원서비스(별책).pdf'
-          ];
           const PDF_BASE_URL = 'https://ggawoos-bot.github.io/chat/pdf/';
 
           const chatSession = useMemo(() => {
@@ -298,26 +294,42 @@
           };
 
           useEffect(() => {
-            const loadAndParsePdfs = async () => {
+            const discoverAndParsePdfs = async () => {
                 setIsParsing(true);
                 setError(null);
                 setSourceText('');
                 setMessages([]);
+                setDiscoveredFiles([]);
 
                 try {
-                    const parsingPromises = PDF_FILES.map(file => parsePdfFromUrl(PDF_BASE_URL + file));
+                    // Step 1: Fetch the manifest file to discover PDF files
+                    const manifestUrl = `${PDF_BASE_URL}manifest.json`;
+                    const manifestResponse = await fetch(manifestUrl);
+                    if (!manifestResponse.ok) {
+                        throw new Error(`Could not load file list (manifest.json). Status: ${manifestResponse.statusText}`);
+                    }
+                    const pdfFiles = await manifestResponse.json();
+
+                    if (!Array.isArray(pdfFiles) || pdfFiles.length === 0) {
+                        throw new Error("No PDF files found in manifest.json or the file is invalid.");
+                    }
+                    setDiscoveredFiles(pdfFiles);
+
+                    // Step 2: Parse the discovered PDF files
+                    const parsingPromises = pdfFiles.map(file => parsePdfFromUrl(PDF_BASE_URL + file));
                     const texts = await Promise.all(parsingPromises);
                     const combinedText = texts.join('\n--- END OF DOCUMENT ---\n\n--- START OF DOCUMENT ---\n');
                     setSourceText(combinedText);
                 } catch (err) {
                     console.error("Error loading PDFs:", err);
                     setError(err instanceof Error ? err.message : 'An unknown error occurred during loading.');
+                    setDiscoveredFiles([]); // Clear file list on error
                 } finally {
                     setIsParsing(false);
                 }
             };
             
-            loadAndParsePdfs();
+            discoverAndParsePdfs();
         }, []); // Empty dependency array ensures this runs only once on mount
 
           const handleSendMessage = useCallback(async (e) => {
@@ -372,7 +384,7 @@
                       <div className="flex flex-col min-h-0">
                            <SourceInfo
                                 isLoading={isParsing}
-                                files={PDF_FILES}
+                                files={discoveredFiles}
                            />
                       </div>
                       
@@ -416,5 +428,6 @@
         </StrictMode>
       );
     </script>
-  </body>
+  <script type="module" src="/index.tsx"></script>
+</body>
 </html>
